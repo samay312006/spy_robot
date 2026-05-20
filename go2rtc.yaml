@@ -1,0 +1,10 @@
+streams:
+  picam:
+    - "exec:rpicam-vid -t 0 --inline -o - --width 640 --height 480 --framerate 15 --codec h264"
+
+webrtc:
+  candidates:
+    - stun:stun.l.google.com:19302
+
+api:
+  listen: ":1984"

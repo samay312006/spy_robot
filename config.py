@@ -7,10 +7,8 @@ TOPIC_PREFIX = "spy_robot/robot1"
 CMD_TOPIC = f"{TOPIC_PREFIX}/control"
 STATUS_TOPIC = f"{TOPIC_PREFIX}/status"
 DISTANCE_TOPIC = f"{TOPIC_PREFIX}/distance"
-WEBRTC_SIGNAL_TOPIC = f"{TOPIC_PREFIX}/webrtc"
 PATROL_SCHEDULE_TOPIC = f"{TOPIC_PREFIX}/patrol/schedule"
 PATROL_PATH_TOPIC = f"{TOPIC_PREFIX}/patrol/path"
-WEBRTC_REFRESH_TOPIC = f"{TOPIC_PREFIX}/webrtc_refresh"
 # Motor pins (your existing pins)
 DIR_L = 19
 PWM_L = 26
@@ -30,3 +28,8 @@ AUDIO_SAMPLE_RATE = 48000
 
 # Video
 VIDEO_SIZE = (640, 480)
+
+# go2rtc – video streaming server
+GO2RTC_PATH = "./go2rtc"          # path to binary (in project root)
+GO2RTC_CONFIG = "./go2rtc.yaml"
+GO2RTC_API_PORT = 1984

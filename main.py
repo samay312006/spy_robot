@@ -2,15 +2,17 @@ import time
 import paho.mqtt.client as mqtt
 import json
 import threading
-import asyncio
+import subprocess
+import signal
+import os
 import config
 from motor import MotorController
 from lidar import TFLuna
-from webrtc import WebRTCManager
 from patrol import Patrol
 import logging
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger("main")
+
 class Robot:
     def __init__(self):
         self.motor = MotorController()
@@ -26,12 +28,51 @@ class Robot:
         self.mqtt.username_pw_set(config.MQTT_USER, config.MQTT_PASS)
         # NO tls_set() needed – WSS handles encryption automatically
 
-        self.webrtc = WebRTCManager(self.mqtt)
         self.patrol = Patrol(self.motor, self.lidar, self._publish_status)
         self.mqtt.tls_set() 
 
         self._publish_distance = True
         threading.Thread(target=self._distance_publisher, daemon=True).start()
+
+        # go2rtc process handle
+        self._go2rtc_proc = None
+
+    def _start_go2rtc(self):
+        """Start go2rtc as a subprocess for camera streaming."""
+        go2rtc_bin = os.path.abspath(config.GO2RTC_PATH)
+        go2rtc_cfg = os.path.abspath(config.GO2RTC_CONFIG)
+
+        if not os.path.isfile(go2rtc_bin):
+            logger.error(f"go2rtc binary not found at {go2rtc_bin}")
+            logger.error("Download from: https://github.com/AlexxIT/go2rtc/releases")
+            return
+
+        logger.info(f"Starting go2rtc: {go2rtc_bin} -config {go2rtc_cfg}")
+        self._go2rtc_proc = subprocess.Popen(
+            [go2rtc_bin, "-config", go2rtc_cfg],
+            stdout=subprocess.PIPE,
+            stderr=subprocess.STDOUT,
+        )
+
+        # Log go2rtc output in a background thread
+        def _log_go2rtc():
+            for line in self._go2rtc_proc.stdout:
+                logger.info(f"[go2rtc] {line.decode().rstrip()}")
+        threading.Thread(target=_log_go2rtc, daemon=True).start()
+
+        logger.info(f"go2rtc started (PID {self._go2rtc_proc.pid}), "
+                     f"API on port {config.GO2RTC_API_PORT}")
+
+    def _stop_go2rtc(self):
+        """Stop the go2rtc subprocess."""
+        if self._go2rtc_proc and self._go2rtc_proc.poll() is None:
+            logger.info("Stopping go2rtc...")
+            self._go2rtc_proc.terminate()
+            try:
+                self._go2rtc_proc.wait(timeout=5)
+            except subprocess.TimeoutExpired:
+                self._go2rtc_proc.kill()
+            logger.info("go2rtc stopped")
 
     def _publish_status(self, topic, msg):
         self.mqtt.publish(topic, msg)
@@ -47,10 +88,8 @@ class Robot:
         if rc == 0:
             print("MQTT connected")
             client.subscribe(config.CMD_TOPIC)
-            client.subscribe(config.WEBRTC_SIGNAL_TOPIC)
             client.subscribe(config.PATROL_SCHEDULE_TOPIC)
             client.subscribe(config.PATROL_PATH_TOPIC)
-            client.subscribe(config.WEBRTC_REFRESH_TOPIC)
         else:
             print(f"Connection failed with code {rc}")
 
@@ -60,17 +99,10 @@ class Robot:
             payload = msg.payload.decode()
             if topic == config.CMD_TOPIC:
                 self._handle_command(payload)
-            elif topic == config.WEBRTC_SIGNAL_TOPIC:
-                self.webrtc.handle_signal(payload)
             elif topic == config.PATROL_SCHEDULE_TOPIC:
                 self.patrol.load_schedule(payload)
             elif topic == config.PATROL_PATH_TOPIC:
                 self.patrol.load_waypoints(payload)
-            elif topic == config.WEBRTC_REFRESH_TOPIC:
-                 logger.info("Received refresh request from dashboard")
-                 asyncio.run_coroutine_threadsafe(self.webrtc.restart(), self.webrtc.loop)
-    # Schedule a restart on the asyncio loop
-                 asyncio.run_coroutine_threadsafe(self.webrtc.restart(), self.webrtc.loop)
         except Exception as e:
             print("Error handling message:", e)
 
@@ -107,13 +139,12 @@ class Robot:
                 pass
 
     def start(self):
-        # Connect to port 8884 (WebSocket)
-      #  print(f"Connecting to MQTT broker: {config.MQTT_BROKER}:8884")
+        # Start go2rtc for camera streaming
+        self._start_go2rtc()
+
+        # Connect to MQTT broker on port 8884 (WebSocket)
         self.mqtt.connect(config.MQTT_BROKER, 8884, 60)
         self.mqtt.loop_start()
-
-        loop = asyncio.new_event_loop()
-        threading.Thread(target=self._start_webrtc, args=(loop,), daemon=True).start()
 
         threading.Thread(target=self.patrol.run_scheduler_loop, daemon=True).start()
 
@@ -123,13 +154,9 @@ class Robot:
         except KeyboardInterrupt:
             self.shutdown()
 
-    def _start_webrtc(self, loop):
-        asyncio.set_event_loop(loop)
-        self.webrtc.run(loop)
-        loop.run_forever()
-
     def shutdown(self):
         self._publish_distance = False
+        self._stop_go2rtc()
         self.lidar.stop()
         self.motor.cleanup()
         self.mqtt.loop_stop()

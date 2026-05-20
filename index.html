@@ -148,10 +148,13 @@
         const password = 'MySecurePass123';
         const topicPrefix = 'spy_robot/robot1';
         const controlTopic = topicPrefix + '/control';
-        const webrtcTopic = topicPrefix + '/webrtc';
         const scheduleTopic = topicPrefix + '/patrol/schedule';
         const pathTopic = topicPrefix + '/patrol/path';
-        const webrtcRefreshTopic = topicPrefix + '/webrtc_refresh';
+
+        // go2rtc settings – set this to your Pi's IP or hostname
+        const GO2RTC_HOST = window.location.hostname || 'localhost';
+        const GO2RTC_PORT = 1984;
+        const GO2RTC_STREAM = 'picam';
 
         // ========== STATUS LOGGING ==========
         const statusDiv = document.getElementById('status');
@@ -164,14 +167,14 @@
             log('PAGE ERROR: ' + msg + ' at line ' + line);
         };
 
-        // ========== MQTT ==========
+        // ========== MQTT (controls only, no video signaling) ==========
         log('Connecting to MQTT...');
         const client = mqtt.connect(`wss://${broker}:${port}/mqtt`, { username, password });
 
         client.on('connect', () => {
             log('MQTT connected');
-            client.subscribe(webrtcTopic);
-            requestRefresh();
+            // Start go2rtc WebRTC connection once MQTT is up
+            startGo2rtcStream();
         });
 
         client.on('error', (err) => log('MQTT error: ' + err.message));
@@ -217,145 +220,93 @@
             log('Patrol scheduled at ' + hh + ':' + mm);
         }
 
-        // ========== WebRTC ==========
-        let pc = null;
-        let refreshTimeout = null;
-        let negotiating = false;
-        let pendingPlay = null;          // track the last play() promise
+        // ========== go2rtc WebRTC ==========
         const videoElem = document.getElementById('video');
+        let pc = null;
 
-        // Safely set a new video stream, aborting any previous play attempts
-        async function setVideoStream(stream) {
-            // Cancel any previous play that might still be pending
-            if (pendingPlay) {
-                pendingPlay.cancel = true;   // custom flag, not a real cancel, but we'll ignore it
-            }
+        async function startGo2rtcStream() {
+            log('Connecting to go2rtc...');
 
-            // Clear the old source
-            if (videoElem.srcObject) {
-                videoElem.srcObject = null;
-                // Wait a microtask to ensure the change is processed
-                await new Promise(r => setTimeout(r, 0));
-            }
-
-            // Assign the new stream
-            videoElem.srcObject = stream;
-
-            // Start playback and store the promise
-            const playPromise = videoElem.play();
-            pendingPlay = playPromise;
-            try {
-                await playPromise;
-                log('Video playing');
-            } catch (e) {
-                // Ignore "interrupted" errors if we've already cancelled
-                if (e.name !== 'AbortError' || !pendingPlay.cancel) {
-                    log('Play error: ' + e.message);
-                }
-            }
-        }
-
-        function closePeerConnection() {
+            // Close any existing connection
             if (pc) {
                 try { pc.close(); } catch(e) {}
                 pc = null;
-                // Do NOT touch videoElem.srcObject here – setVideoStream will handle it
-                log('Old peer connection closed');
             }
-        }
-
-        async function createPeerConnection() {
-            closePeerConnection();   // just close the PC, don't mess with video
 
             pc = new RTCPeerConnection({
                 iceServers: [
-                    { urls: 'stun:stun.l.google.com:19302' },
-                    {
-                        urls: 'turn:openrelay.metered.ca:443',
-                        username: 'openrelayproject',
-                        credential: 'openrelayproject'
-                    }
+                    { urls: 'stun:stun.l.google.com:19302' }
                 ]
             });
 
+            // Receive remote video track
             pc.ontrack = (event) => {
-                log('Remote track added: ' + event.track.kind);
+                log('Track received: ' + event.track.kind);
                 if (event.streams && event.streams[0]) {
-                    // Use the safe setter
-                    setVideoStream(event.streams[0]);
+                    videoElem.srcObject = event.streams[0];
+                    videoElem.play().catch(e => log('Play error: ' + e.message));
                 }
             };
 
-            pc.onicecandidate = (event) => {
-                if (event.candidate) {
-                    client.publish(webrtcTopic, JSON.stringify({
-                        candidate: event.candidate.candidate,
-                        sdpMid: event.candidate.sdpMid,
-                        sdpMLineIndex: event.candidate.sdpMLineIndex
-                    }));
+            pc.oniceconnectionstatechange = () => {
+                log('ICE state: ' + pc.iceConnectionState);
+                if (pc.iceConnectionState === 'failed' || pc.iceConnectionState === 'disconnected') {
+                    log('Connection lost, reconnecting in 3s...');
+                    setTimeout(startGo2rtcStream, 3000);
                 }
             };
 
-            log('RTCPeerConnection created');
-            return pc;
-        }
+            // Create offer requesting video
+            const offer = await pc.createOffer({
+                offerToReceiveVideo: true,
+                offerToReceiveAudio: true
+            });
+            await pc.setLocalDescription(offer);
 
-        async function handleSignal(msg) {
-            if (negotiating && msg.sdp) {
-                log('Busy – ignoring SDP');
-                return;
-            }
-            if (msg.sdp) {
-                if (msg.type !== 'offer') return;
-                log('Processing offer...');
-                negotiating = true;
-                clearTimeout(refreshTimeout);
-
-                try {
-                    await createPeerConnection();   // this handles video setup
-                    await pc.setRemoteDescription(new RTCSessionDescription(msg));
-                    const answer = await pc.createAnswer();
-                    await pc.setLocalDescription(answer);
-                    client.publish(webrtcTopic, JSON.stringify({
-                        sdp: pc.localDescription.sdp,
-                        type: 'answer'
-                    }));
-                    log('Answer sent');
-                } catch(e) {
-                    log('SDP error: ' + e.message);
-                } finally {
-                    negotiating = false;
+            // Wait for ICE gathering to complete (or timeout)
+            await new Promise((resolve) => {
+                if (pc.iceGatheringState === 'complete') {
+                    resolve();
+                } else {
+                    const checkState = () => {
+                        if (pc.iceGatheringState === 'complete') {
+                            pc.removeEventListener('icegatheringstatechange', checkState);
+                            resolve();
+                        }
+                    };
+                    pc.addEventListener('icegatheringstatechange', checkState);
+                    // Timeout after 2s regardless
+                    setTimeout(resolve, 2000);
                 }
-            } else if (msg.candidate) {
-                try {
-                    if (!pc) return;
-                    await pc.addIceCandidate(new RTCIceCandidate(msg));
-                } catch(e) {
-                    log('ICE error: ' + e.message);
+            });
+
+            // Send offer to go2rtc API
+            try {
+                const apiUrl = `http://${GO2RTC_HOST}:${GO2RTC_PORT}/api/webrtc?src=${GO2RTC_STREAM}`;
+                log('Sending offer to ' + apiUrl);
+
+                const response = await fetch(apiUrl, {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({
+                        type: 'offer',
+                        sdp: pc.localDescription.sdp
+                    })
+                });
+
+                if (!response.ok) {
+                    throw new Error(`go2rtc API returned ${response.status}`);
                 }
+
+                const answer = await response.json();
+                await pc.setRemoteDescription(new RTCSessionDescription(answer));
+                log('go2rtc stream connected');
+            } catch (e) {
+                log('go2rtc connection error: ' + e.message);
+                log('Retrying in 5s...');
+                setTimeout(startGo2rtcStream, 5000);
             }
         }
-
-        function requestRefresh() {
-            client.publish(webrtcRefreshTopic, '1');
-            log('Sent refresh request');
-            clearTimeout(refreshTimeout);
-            refreshTimeout = setTimeout(() => {
-                log('No offer received yet, retrying refresh...');
-                requestRefresh();
-            }, 10000);
-        }
-
-        client.on('message', (topic, message) => {
-            if (topic === webrtcTopic) {
-                try {
-                    const msg = JSON.parse(message.toString());
-                    handleSignal(msg);
-                } catch(e) {
-                    log('Signal parse error: ' + e.message);
-                }
-            }
-        });
     </script>
 </body>
 </html>
