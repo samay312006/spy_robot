@@ -220,23 +220,52 @@
         // ========== WebRTC ==========
         let pc = null;
         let refreshTimeout = null;
-        let negotiating = false;           // prevents overlapping negotiations
+        let negotiating = false;
+        let pendingPlay = null;          // track the last play() promise
         const videoElem = document.getElementById('video');
 
-        // Properly close peer connection and clear the video element
+        // Safely set a new video stream, aborting any previous play attempts
+        async function setVideoStream(stream) {
+            // Cancel any previous play that might still be pending
+            if (pendingPlay) {
+                pendingPlay.cancel = true;   // custom flag, not a real cancel, but we'll ignore it
+            }
+
+            // Clear the old source
+            if (videoElem.srcObject) {
+                videoElem.srcObject = null;
+                // Wait a microtask to ensure the change is processed
+                await new Promise(r => setTimeout(r, 0));
+            }
+
+            // Assign the new stream
+            videoElem.srcObject = stream;
+
+            // Start playback and store the promise
+            const playPromise = videoElem.play();
+            pendingPlay = playPromise;
+            try {
+                await playPromise;
+                log('Video playing');
+            } catch (e) {
+                // Ignore "interrupted" errors if we've already cancelled
+                if (e.name !== 'AbortError' || !pendingPlay.cancel) {
+                    log('Play error: ' + e.message);
+                }
+            }
+        }
+
         function closePeerConnection() {
             if (pc) {
                 try { pc.close(); } catch(e) {}
                 pc = null;
-                // Clear the video element so it's ready for a new stream
-                videoElem.srcObject = null;
-                videoElem.load();          // force the element to reset
-                log('Old peer connection closed, video element cleared');
+                // Do NOT touch videoElem.srcObject here – setVideoStream will handle it
+                log('Old peer connection closed');
             }
         }
 
         async function createPeerConnection() {
-            closePeerConnection();   // ensures clean state
+            closePeerConnection();   // just close the PC, don't mess with video
 
             pc = new RTCPeerConnection({
                 iceServers: [
@@ -252,11 +281,8 @@
             pc.ontrack = (event) => {
                 log('Remote track added: ' + event.track.kind);
                 if (event.streams && event.streams[0]) {
-                    videoElem.srcObject = event.streams[0];
-                    // Explicitly play the video (required after srcObject change)
-                    videoElem.play().then(() => {
-                        log('Video playing');
-                    }).catch(e => log('Play error: ' + e.message));
+                    // Use the safe setter
+                    setVideoStream(event.streams[0]);
                 }
             };
 
@@ -275,21 +301,18 @@
         }
 
         async function handleSignal(msg) {
-            // Ignore SDP while already negotiating (prevents multiple concurrent offers)
             if (negotiating && msg.sdp) {
                 log('Busy – ignoring SDP');
                 return;
             }
-            // Only process offers; ignore answers
             if (msg.sdp) {
                 if (msg.type !== 'offer') return;
-
                 log('Processing offer...');
                 negotiating = true;
-                clearTimeout(refreshTimeout);      // we got an offer, stop retry
+                clearTimeout(refreshTimeout);
 
                 try {
-                    await createPeerConnection();   // this clears old video too
+                    await createPeerConnection();   // this handles video setup
                     await pc.setRemoteDescription(new RTCSessionDescription(msg));
                     const answer = await pc.createAnswer();
                     await pc.setLocalDescription(answer);
@@ -317,7 +340,6 @@
             client.publish(webrtcRefreshTopic, '1');
             log('Sent refresh request');
             clearTimeout(refreshTimeout);
-            // Give the robot enough time to restart the camera (~6 sec) before retrying
             refreshTimeout = setTimeout(() => {
                 log('No offer received yet, retrying refresh...');
                 requestRefresh();
