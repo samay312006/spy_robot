@@ -1,141 +1,528 @@
 <!DOCTYPE html>
-<html>
+<html lang="en">
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Spy Robot</title>
+    <title>Spy Robot — Dashboard</title>
+    <meta name="description" content="Live control dashboard for Spy Robot">
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
+    <link href="https://fonts.googleapis.com/icon?family=Material+Icons+Round" rel="stylesheet">
     <style>
+        :root {
+            --bg-primary: #0a0e17;
+            --bg-card: rgba(17, 24, 39, 0.7);
+            --bg-card-hover: rgba(24, 33, 50, 0.8);
+            --border: rgba(56, 189, 248, 0.15);
+            --border-glow: rgba(56, 189, 248, 0.4);
+            --accent: #38bdf8;
+            --accent-dim: rgba(56, 189, 248, 0.15);
+            --accent-green: #34d399;
+            --accent-red: #f87171;
+            --accent-amber: #fbbf24;
+            --text-primary: #f1f5f9;
+            --text-secondary: #94a3b8;
+            --text-dim: #475569;
+            --radius: 14px;
+            --radius-sm: 10px;
+            --shadow: 0 8px 32px rgba(0,0,0,0.4);
+            --transition: 0.25s cubic-bezier(0.4, 0, 0.2, 1);
+        }
+
+        * { margin: 0; padding: 0; box-sizing: border-box; }
+
         body {
-            margin: 0;
-            background: #111;
-            color: white;
-            font-family: Arial;
-        }
-        h2 {
-            text-align: center;
-            margin: 10px 0;
+            background: var(--bg-primary);
+            color: var(--text-primary);
+            font-family: 'Inter', system-ui, sans-serif;
+            min-height: 100vh;
+            overflow-x: hidden;
         }
 
-        .main-container {
+        /* Subtle animated background gradient */
+        body::before {
+            content: '';
+            position: fixed;
+            top: -50%;
+            left: -50%;
+            width: 200%;
+            height: 200%;
+            background: radial-gradient(ellipse at 30% 20%, rgba(56, 189, 248, 0.06) 0%, transparent 50%),
+                        radial-gradient(ellipse at 70% 80%, rgba(99, 102, 241, 0.04) 0%, transparent 50%);
+            z-index: -1;
+            animation: bgShift 20s ease-in-out infinite alternate;
+        }
+        @keyframes bgShift {
+            0% { transform: translate(0, 0); }
+            100% { transform: translate(3%, -3%); }
+        }
+
+        /* ===== HEADER ===== */
+        .header {
             display: flex;
-            flex-wrap: wrap;
+            align-items: center;
+            justify-content: space-between;
+            padding: 16px 24px;
+            border-bottom: 1px solid var(--border);
+            backdrop-filter: blur(12px);
+            position: sticky;
+            top: 0;
+            z-index: 100;
+            background: rgba(10, 14, 23, 0.85);
+        }
+        .header-left {
+            display: flex;
+            align-items: center;
+            gap: 12px;
+        }
+        .header-icon {
+            width: 36px;
+            height: 36px;
+            border-radius: 10px;
+            background: linear-gradient(135deg, var(--accent), #6366f1);
+            display: flex;
+            align-items: center;
             justify-content: center;
-            align-items: flex-start;
-            gap: 20px;
-            padding: 10px;
+            font-size: 20px;
+            box-shadow: 0 0 20px rgba(56, 189, 248, 0.3);
+        }
+        .header h1 {
+            font-size: 18px;
+            font-weight: 700;
+            letter-spacing: -0.02em;
+        }
+        .header h1 span {
+            color: var(--accent);
         }
 
-        .video-section {
-            flex: 1 1 auto;
-            max-width: 640px;
-            min-width: 300px;
+        /* ===== CONNECTION STATUS BADGES ===== */
+        .status-badges {
+            display: flex;
+            gap: 10px;
+            align-items: center;
+        }
+        .badge {
+            display: flex;
+            align-items: center;
+            gap: 6px;
+            padding: 6px 14px;
+            border-radius: 20px;
+            font-size: 12px;
+            font-weight: 600;
+            letter-spacing: 0.02em;
+            border: 1px solid var(--border);
+            background: var(--bg-card);
+            transition: var(--transition);
+        }
+        .badge .dot {
+            width: 8px;
+            height: 8px;
+            border-radius: 50%;
+            flex-shrink: 0;
+        }
+        .badge.connected .dot {
+            background: var(--accent-green);
+            box-shadow: 0 0 8px var(--accent-green);
+            animation: pulse-dot 2s ease-in-out infinite;
+        }
+        .badge.disconnected .dot {
+            background: var(--accent-red);
+            box-shadow: 0 0 8px var(--accent-red);
+        }
+        .badge.connecting .dot {
+            background: var(--accent-amber);
+            box-shadow: 0 0 8px var(--accent-amber);
+            animation: pulse-dot 1s ease-in-out infinite;
+        }
+        @keyframes pulse-dot {
+            0%, 100% { opacity: 1; transform: scale(1); }
+            50% { opacity: 0.5; transform: scale(0.8); }
+        }
+
+        /* ===== MAIN LAYOUT ===== */
+        .dashboard {
+            display: grid;
+            grid-template-columns: 1fr 280px;
+            gap: 20px;
+            padding: 20px 24px;
+            max-width: 1100px;
+            margin: 0 auto;
+        }
+
+        /* ===== CARD STYLES ===== */
+        .card {
+            background: var(--bg-card);
+            border: 1px solid var(--border);
+            border-radius: var(--radius);
+            backdrop-filter: blur(16px);
+            box-shadow: var(--shadow);
+            transition: var(--transition);
+        }
+        .card:hover {
+            border-color: var(--border-glow);
+        }
+        .card-header {
+            display: flex;
+            align-items: center;
+            gap: 8px;
+            padding: 14px 18px;
+            border-bottom: 1px solid var(--border);
+            font-size: 13px;
+            font-weight: 600;
+            color: var(--text-secondary);
+            text-transform: uppercase;
+            letter-spacing: 0.06em;
+        }
+        .card-header .material-icons-round {
+            font-size: 18px;
+            color: var(--accent);
+        }
+        .card-body {
+            padding: 18px;
+        }
+
+        /* ===== VIDEO FEED ===== */
+        .video-wrapper {
+            position: relative;
+            overflow: hidden;
+            border-radius: var(--radius);
         }
         #video {
             width: 100%;
-            border-radius: 10px;
-            border: 2px solid #00bfff;
-            background: #000;
             display: block;
+            border-radius: var(--radius-sm);
+            background: #000;
+            aspect-ratio: 4/3;
+            object-fit: cover;
+        }
+        .video-overlay {
+            position: absolute;
+            top: 12px;
+            left: 12px;
+            display: flex;
+            gap: 8px;
+        }
+        .video-badge {
+            background: rgba(0,0,0,0.6);
+            backdrop-filter: blur(8px);
+            padding: 4px 10px;
+            border-radius: 6px;
+            font-size: 11px;
+            font-weight: 600;
+            display: flex;
+            align-items: center;
+            gap: 5px;
+        }
+        .video-badge .rec-dot {
+            width: 6px;
+            height: 6px;
+            border-radius: 50%;
+            background: var(--accent-red);
+            animation: pulse-dot 1.5s ease-in-out infinite;
         }
 
-        .control-panel {
-            flex: 0 0 250px;
+        /* ===== CONTROL PANEL (right column) ===== */
+        .controls-column {
             display: flex;
             flex-direction: column;
-            align-items: center;
-            gap: 15px;
+            gap: 16px;
         }
 
-        #status {
-            background: #222;
-            padding: 10px;
-            margin: 10px auto;
-            max-width: 800px;
-            text-align: left;
-            font-size: 14px;
-            height: 120px;
-            overflow-y: auto;
-            color: #0f0;
-            border-radius: 5px;
-            white-space: pre-wrap;
-            clear: both;
-        }
-
+        /* ===== JOYSTICK ===== */
         #joystick-zone {
-            width: 200px;
-            height: 200px;
+            width: 180px;
+            height: 180px;
             position: relative;
             margin: 0 auto;
         }
 
-        button {
-            width: 160px;
-            padding: 15px;
-            font-size: 20px;
-            background: #ff3333;
-            border: none;
-            color: white;
-            border-radius: 10px;
+        /* ===== BUTTONS ===== */
+        .btn {
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            gap: 8px;
+            width: 100%;
+            padding: 12px 18px;
+            font-family: 'Inter', sans-serif;
+            font-size: 14px;
+            font-weight: 600;
+            border: 1px solid var(--border);
+            border-radius: var(--radius-sm);
             cursor: pointer;
-            margin: 5px;
+            transition: var(--transition);
+            background: var(--bg-card);
+            color: var(--text-primary);
+            outline: none;
         }
-        button:active { background: #cc0000; }
+        .btn:hover {
+            background: var(--bg-card-hover);
+            border-color: var(--border-glow);
+            transform: translateY(-1px);
+            box-shadow: 0 4px 16px rgba(0,0,0,0.3);
+        }
+        .btn:active {
+            transform: translateY(0);
+            box-shadow: none;
+        }
+        .btn .material-icons-round {
+            font-size: 18px;
+        }
 
-        .patrol-controls {
+        /* Button variants */
+        .btn-danger {
+            background: rgba(248, 113, 113, 0.12);
+            border-color: rgba(248, 113, 113, 0.3);
+            color: var(--accent-red);
+        }
+        .btn-danger:hover {
+            background: rgba(248, 113, 113, 0.2);
+            border-color: rgba(248, 113, 113, 0.5);
+            box-shadow: 0 4px 20px rgba(248, 113, 113, 0.15);
+        }
+
+        .btn-accent {
+            background: rgba(56, 189, 248, 0.1);
+            border-color: rgba(56, 189, 248, 0.25);
+            color: var(--accent);
+        }
+        .btn-accent:hover {
+            background: rgba(56, 189, 248, 0.18);
+            border-color: rgba(56, 189, 248, 0.5);
+            box-shadow: 0 4px 20px rgba(56, 189, 248, 0.12);
+        }
+
+        .btn-green {
+            background: rgba(52, 211, 153, 0.1);
+            border-color: rgba(52, 211, 153, 0.25);
+            color: var(--accent-green);
+        }
+        .btn-green:hover {
+            background: rgba(52, 211, 153, 0.18);
+            border-color: rgba(52, 211, 153, 0.5);
+            box-shadow: 0 4px 20px rgba(52, 211, 153, 0.12);
+        }
+
+        /* ===== INPUTS ===== */
+        .input-group {
             display: flex;
             flex-direction: column;
-            gap: 10px;
-            align-items: center;
-            width: 100%;
+            gap: 6px;
+        }
+        .input-group label {
+            font-size: 11px;
+            font-weight: 600;
+            color: var(--text-dim);
+            text-transform: uppercase;
+            letter-spacing: 0.06em;
         }
         input, textarea {
-            padding: 5px;
-            font-size: 16px;
-            background: #333;
-            color: white;
-            border: 1px solid #555;
-            border-radius: 4px;
-            width: 160px;
+            padding: 10px 12px;
+            font-family: 'Inter', sans-serif;
+            font-size: 13px;
+            background: rgba(15, 23, 42, 0.6);
+            color: var(--text-primary);
+            border: 1px solid var(--border);
+            border-radius: 8px;
+            outline: none;
+            transition: var(--transition);
+            width: 100%;
+            resize: vertical;
+        }
+        input:focus, textarea:focus {
+            border-color: var(--accent);
+            box-shadow: 0 0 0 3px var(--accent-dim);
         }
 
-        @media (max-width: 850px) {
-            .main-container {
+        /* ===== LOG CONSOLE ===== */
+        .console-wrapper {
+            grid-column: 1 / -1;
+        }
+        #status {
+            background: rgba(2, 6, 14, 0.8);
+            padding: 14px;
+            font-family: 'JetBrains Mono', 'Fira Code', monospace;
+            font-size: 12px;
+            height: 130px;
+            overflow-y: auto;
+            color: var(--accent-green);
+            line-height: 1.7;
+            white-space: pre-wrap;
+            border-radius: 8px;
+        }
+        #status::-webkit-scrollbar {
+            width: 6px;
+        }
+        #status::-webkit-scrollbar-track {
+            background: transparent;
+        }
+        #status::-webkit-scrollbar-thumb {
+            background: var(--text-dim);
+            border-radius: 3px;
+        }
+
+        /* ===== DISTANCE READOUT ===== */
+        .distance-display {
+            text-align: center;
+            padding: 10px;
+        }
+        .distance-value {
+            font-size: 32px;
+            font-weight: 700;
+            color: var(--accent);
+            font-variant-numeric: tabular-nums;
+        }
+        .distance-unit {
+            font-size: 14px;
+            color: var(--text-dim);
+            font-weight: 500;
+        }
+
+        /* ===== RESPONSIVE ===== */
+        @media (max-width: 768px) {
+            .dashboard {
+                grid-template-columns: 1fr;
+                padding: 12px;
+            }
+            .header {
                 flex-direction: column;
-                align-items: center;
+                gap: 10px;
+                align-items: flex-start;
             }
-            .video-section { max-width: 90vw; }
-            .control-panel {
-                flex: 0 0 auto;
-                width: 90vw;
-                flex-direction: row;
-                flex-wrap: wrap;
-                justify-content: center;
+            .status-badges {
+                width: 100%;
+                justify-content: flex-start;
             }
+        }
+
+        /* Entrance animation */
+        .card { animation: fadeUp 0.5s ease both; }
+        .card:nth-child(2) { animation-delay: 0.08s; }
+        .card:nth-child(3) { animation-delay: 0.16s; }
+        @keyframes fadeUp {
+            from { opacity: 0; transform: translateY(12px); }
+            to   { opacity: 1; transform: translateY(0); }
         }
     </style>
 </head>
 <body>
-    <h2>SPY ROBOT LIVE</h2>
 
-    <div class="main-container">
-        <div class="video-section">
-            <video id="video" autoplay playsinline muted></video>
+    <!-- ===== HEADER ===== -->
+    <header class="header">
+        <div class="header-left">
+            <div class="header-icon">🤖</div>
+            <h1>SPY <span>ROBOT</span></h1>
+        </div>
+        <div class="status-badges">
+            <div id="badge-mqtt" class="badge disconnected">
+                <span class="dot"></span>
+                <span id="mqtt-label">MQTT Disconnected</span>
+            </div>
+            <div id="badge-video" class="badge disconnected">
+                <span class="dot"></span>
+                <span id="video-label">Video Offline</span>
+            </div>
+        </div>
+    </header>
+
+    <!-- ===== DASHBOARD GRID ===== -->
+    <div class="dashboard">
+
+        <!-- LEFT: Video + Console -->
+        <div style="display:flex; flex-direction:column; gap:16px;">
+
+            <!-- Video Feed -->
+            <div class="card">
+                <div class="card-header">
+                    <span class="material-icons-round">videocam</span>
+                    Live Feed
+                </div>
+                <div class="card-body" style="padding:10px;">
+                    <div class="video-wrapper">
+                        <video id="video" autoplay playsinline muted></video>
+                        <div class="video-overlay">
+                            <div class="video-badge" id="live-badge" style="display:none;">
+                                <span class="rec-dot"></span> LIVE
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Console Log -->
+            <div class="card console-wrapper">
+                <div class="card-header">
+                    <span class="material-icons-round">terminal</span>
+                    System Log
+                </div>
+                <div class="card-body" style="padding:10px;">
+                    <div id="status">Initializing...</div>
+                </div>
+            </div>
         </div>
 
-        <div class="control-panel">
-            <div id="joystick-zone"></div>
-            <button onclick="sendCommand('s')">STOP</button>
-            <div class="patrol-controls">
-                <input id="patrolTimes" placeholder="08:00,18:00" />
-                <button onclick="setSchedule()">Set Schedule</button>
-                <textarea id="waypoints" rows="3">[{"cmd":"f","duration":2,"speed":80}]</textarea>
-                <button onclick="loadWaypoints()">Load Waypoints</button>
-                <button onclick="startManualPatrol()">Start Patrol Now</button>
+        <!-- RIGHT: Controls -->
+        <div class="controls-column">
+
+            <!-- Joystick -->
+            <div class="card">
+                <div class="card-header">
+                    <span class="material-icons-round">gamepad</span>
+                    Movement
+                </div>
+                <div class="card-body" style="display:flex; flex-direction:column; align-items:center; gap:12px;">
+                    <div id="joystick-zone"></div>
+                    <button id="btn-stop" class="btn btn-danger" onclick="sendCommand('s')">
+                        <span class="material-icons-round">stop_circle</span>
+                        EMERGENCY STOP
+                    </button>
+                </div>
+            </div>
+
+            <!-- Distance -->
+            <div class="card">
+                <div class="card-header">
+                    <span class="material-icons-round">sensors</span>
+                    LiDAR Distance
+                </div>
+                <div class="card-body">
+                    <div class="distance-display">
+                        <span id="distance-value" class="distance-value">—</span>
+                        <span class="distance-unit"> cm</span>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Patrol -->
+            <div class="card">
+                <div class="card-header">
+                    <span class="material-icons-round">route</span>
+                    Patrol
+                </div>
+                <div class="card-body" style="display:flex; flex-direction:column; gap:10px;">
+                    <div class="input-group">
+                        <label>Schedule Times</label>
+                        <input id="patrolTimes" placeholder="08:00, 18:00" />
+                    </div>
+                    <button class="btn btn-accent" onclick="setSchedule()">
+                        <span class="material-icons-round">schedule</span>
+                        Set Schedule
+                    </button>
+                    <div class="input-group">
+                        <label>Waypoints (JSON)</label>
+                        <textarea id="waypoints" rows="2">[{"cmd":"f","duration":2,"speed":80}]</textarea>
+                    </div>
+                    <button class="btn btn-accent" onclick="loadWaypoints()">
+                        <span class="material-icons-round">upload</span>
+                        Load Waypoints
+                    </button>
+                    <button class="btn btn-green" onclick="startManualPatrol()">
+                        <span class="material-icons-round">play_arrow</span>
+                        Start Patrol Now
+                    </button>
+                </div>
             </div>
         </div>
     </div>
-
-    <div id="status">Initializing...</div>
 
     <script src="https://unpkg.com/mqtt/dist/mqtt.min.js"></script>
     <script src="https://cdnjs.cloudflare.com/ajax/libs/nipplejs/0.10.1/nipplejs.min.js"></script>
@@ -148,36 +535,69 @@
         const password = 'MySecurePass123';
         const topicPrefix = 'spy_robot/robot1';
         const controlTopic = topicPrefix + '/control';
+        const distanceTopic = topicPrefix + '/distance';
         const scheduleTopic = topicPrefix + '/patrol/schedule';
         const pathTopic = topicPrefix + '/patrol/path';
 
-        // go2rtc settings – set this to your Pi's IP or hostname
+        // go2rtc
         const GO2RTC_HOST = window.location.hostname || 'localhost';
         const GO2RTC_PORT = 1984;
         const GO2RTC_STREAM = 'picam';
 
+        // ========== UI ELEMENTS ==========
+        const badgeMqtt   = document.getElementById('badge-mqtt');
+        const badgeVideo  = document.getElementById('badge-video');
+        const mqttLabel   = document.getElementById('mqtt-label');
+        const videoLabel  = document.getElementById('video-label');
+        const liveBadge   = document.getElementById('live-badge');
+        const distDisplay = document.getElementById('distance-value');
+        const statusDiv   = document.getElementById('status');
+        const videoElem   = document.getElementById('video');
+
         // ========== STATUS LOGGING ==========
-        const statusDiv = document.getElementById('status');
         function log(msg) {
-            console.log(msg);
-            statusDiv.textContent += msg + '\n';
+            const ts = new Date().toLocaleTimeString('en-GB', { hour12: false });
+            const line = `[${ts}] ${msg}`;
+            console.log(line);
+            statusDiv.textContent += line + '\n';
             statusDiv.scrollTop = statusDiv.scrollHeight;
         }
-        window.onerror = function(msg, url, line, col, error) {
-            log('PAGE ERROR: ' + msg + ' at line ' + line);
-        };
+        window.onerror = (msg, url, line) => log('ERROR: ' + msg + ' L' + line);
 
-        // ========== MQTT (controls only, no video signaling) ==========
+        // ========== BADGE HELPERS ==========
+        function setBadge(badge, label, state, text) {
+            badge.className = 'badge ' + state;
+            label.textContent = text;
+        }
+
+        // ========== MQTT ==========
         log('Connecting to MQTT...');
+        setBadge(badgeMqtt, mqttLabel, 'connecting', 'MQTT Connecting…');
+
         const client = mqtt.connect(`wss://${broker}:${port}/mqtt`, { username, password });
 
         client.on('connect', () => {
             log('MQTT connected');
-            // Start go2rtc WebRTC connection once MQTT is up
+            setBadge(badgeMqtt, mqttLabel, 'connected', 'RPi Connected');
+            client.subscribe(distanceTopic);
             startGo2rtcStream();
         });
 
-        client.on('error', (err) => log('MQTT error: ' + err.message));
+        client.on('close', () => {
+            setBadge(badgeMqtt, mqttLabel, 'disconnected', 'RPi Disconnected');
+        });
+
+        client.on('error', (err) => {
+            log('MQTT error: ' + err.message);
+            setBadge(badgeMqtt, mqttLabel, 'disconnected', 'RPi Disconnected');
+        });
+
+        client.on('message', (topic, message) => {
+            if (topic === distanceTopic) {
+                const val = message.toString();
+                distDisplay.textContent = val;
+            }
+        });
 
         // ========== MOVEMENT ==========
         function sendCommand(cmd) { client.publish(controlTopic, cmd); }
@@ -186,9 +606,9 @@
         const joystick = nipplejs.create({
             zone: document.getElementById('joystick-zone'),
             mode: 'static',
-            position: { left:'50%', top:'50%' },
-            color: 'blue',
-            size: 180
+            position: { left: '50%', top: '50%' },
+            color: '#38bdf8',
+            size: 160
         });
         joystick.on('move', (evt, data) => {
             const dir = data.direction?.angle;
@@ -201,9 +621,9 @@
 
         // ========== PATROL ==========
         function setSchedule() {
-            const times = document.getElementById('patrolTimes').value.split(',').map(t=>t.trim());
+            const times = document.getElementById('patrolTimes').value.split(',').map(t => t.trim());
             client.publish(scheduleTopic, JSON.stringify(times));
-            log('Schedule set');
+            log('Schedule set: ' + times.join(', '));
         }
         function loadWaypoints() {
             const wp = document.getElementById('waypoints').value;
@@ -214,95 +634,90 @@
             loadWaypoints();
             const now = new Date();
             now.setMinutes(now.getMinutes() + 1);
-            const hh = String(now.getHours()).padStart(2,'0');
-            const mm = String(now.getMinutes()).padStart(2,'0');
+            const hh = String(now.getHours()).padStart(2, '0');
+            const mm = String(now.getMinutes()).padStart(2, '0');
             client.publish(scheduleTopic, JSON.stringify([`${hh}:${mm}`]));
             log('Patrol scheduled at ' + hh + ':' + mm);
         }
 
         // ========== go2rtc WebRTC ==========
-        const videoElem = document.getElementById('video');
         let pc = null;
 
         async function startGo2rtcStream() {
             log('Connecting to go2rtc...');
+            setBadge(badgeVideo, videoLabel, 'connecting', 'Video Connecting…');
 
-            // Close any existing connection
             if (pc) {
-                try { pc.close(); } catch(e) {}
+                try { pc.close(); } catch (e) {}
                 pc = null;
             }
 
             pc = new RTCPeerConnection({
-                iceServers: [
-                    { urls: 'stun:stun.l.google.com:19302' }
-                ]
+                iceServers: [{ urls: 'stun:stun.l.google.com:19302' }]
             });
 
-            // Receive remote video track
             pc.ontrack = (event) => {
                 log('Track received: ' + event.track.kind);
                 if (event.streams && event.streams[0]) {
                     videoElem.srcObject = event.streams[0];
                     videoElem.play().catch(e => log('Play error: ' + e.message));
+                    setBadge(badgeVideo, videoLabel, 'connected', 'Video Live');
+                    liveBadge.style.display = 'flex';
                 }
             };
 
             pc.oniceconnectionstatechange = () => {
-                log('ICE state: ' + pc.iceConnectionState);
-                if (pc.iceConnectionState === 'failed' || pc.iceConnectionState === 'disconnected') {
-                    log('Connection lost, reconnecting in 3s...');
+                const state = pc.iceConnectionState;
+                log('ICE: ' + state);
+                if (state === 'connected' || state === 'completed') {
+                    setBadge(badgeVideo, videoLabel, 'connected', 'Video Live');
+                    liveBadge.style.display = 'flex';
+                } else if (state === 'failed' || state === 'disconnected') {
+                    setBadge(badgeVideo, videoLabel, 'disconnected', 'Video Offline');
+                    liveBadge.style.display = 'none';
+                    log('Video lost, reconnecting in 3s...');
                     setTimeout(startGo2rtcStream, 3000);
                 }
             };
 
-            // Create offer requesting video
             const offer = await pc.createOffer({
                 offerToReceiveVideo: true,
                 offerToReceiveAudio: true
             });
             await pc.setLocalDescription(offer);
 
-            // Wait for ICE gathering to complete (or timeout)
+            // Wait for ICE gathering
             await new Promise((resolve) => {
-                if (pc.iceGatheringState === 'complete') {
-                    resolve();
-                } else {
-                    const checkState = () => {
-                        if (pc.iceGatheringState === 'complete') {
-                            pc.removeEventListener('icegatheringstatechange', checkState);
-                            resolve();
-                        }
-                    };
-                    pc.addEventListener('icegatheringstatechange', checkState);
-                    // Timeout after 2s regardless
-                    setTimeout(resolve, 2000);
-                }
+                if (pc.iceGatheringState === 'complete') return resolve();
+                const check = () => {
+                    if (pc.iceGatheringState === 'complete') {
+                        pc.removeEventListener('icegatheringstatechange', check);
+                        resolve();
+                    }
+                };
+                pc.addEventListener('icegatheringstatechange', check);
+                setTimeout(resolve, 2000);
             });
 
-            // Send offer to go2rtc API
             try {
                 const apiUrl = `http://${GO2RTC_HOST}:${GO2RTC_PORT}/api/webrtc?src=${GO2RTC_STREAM}`;
-                log('Sending offer to ' + apiUrl);
+                log('POST → ' + apiUrl);
 
                 const response = await fetch(apiUrl, {
                     method: 'POST',
                     headers: { 'Content-Type': 'application/json' },
-                    body: JSON.stringify({
-                        type: 'offer',
-                        sdp: pc.localDescription.sdp
-                    })
+                    body: JSON.stringify({ type: 'offer', sdp: pc.localDescription.sdp })
                 });
 
-                if (!response.ok) {
-                    throw new Error(`go2rtc API returned ${response.status}`);
-                }
+                if (!response.ok) throw new Error(`HTTP ${response.status}`);
 
                 const answer = await response.json();
                 await pc.setRemoteDescription(new RTCSessionDescription(answer));
-                log('go2rtc stream connected');
+                log('go2rtc stream negotiated');
             } catch (e) {
-                log('go2rtc connection error: ' + e.message);
+                log('go2rtc error: ' + e.message);
+                setBadge(badgeVideo, videoLabel, 'disconnected', 'Video Offline');
+                liveBadge.style.display = 'none';
                 log('Retrying in 5s...');
                 setTimeout(startGo2rtcStream, 5000);
             }
