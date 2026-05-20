@@ -5,6 +5,14 @@ streams:
 webrtc:
   candidates:
     - stun:stun.l.google.com:19302
+    - stun:stun1.l.google.com:19302
+    # Free TURN relay for when direct P2P doesn't work (remote access)
+    - turn:relay.metered.ca:80?transport=udp
+    - turn:relay.metered.ca:80?transport=tcp
+    - turn:relay.metered.ca:443?transport=tcp
 
 api:
   listen: ":1984"
+
+log:
+  level: debug
