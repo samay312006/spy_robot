@@ -1,0 +1,310 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Spy Robot</title>
+    <style>
+        body {
+            margin: 0;
+            background: #111;
+            color: white;
+            font-family: Arial;
+        }
+        h2 {
+            text-align: center;
+            margin: 10px 0;
+        }
+
+        /* Main flex container: video + controls side by side */
+        .main-container {
+            display: flex;
+            flex-wrap: wrap;
+            justify-content: center;
+            align-items: flex-start;
+            gap: 20px;
+            padding: 10px;
+        }
+
+        /* Video section */
+        .video-section {
+            flex: 1 1 auto;
+            max-width: 640px;
+            min-width: 300px;
+        }
+        #video {
+            width: 100%;
+            border-radius: 10px;
+            border: 2px solid #00bfff;
+            background: #000;
+            display: block;
+        }
+
+        /* Control panel (joystick + buttons + patrol) */
+        .control-panel {
+            flex: 0 0 250px;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            gap: 15px;
+        }
+
+        /* Status log – full width below everything */
+        #status {
+            background: #222;
+            padding: 10px;
+            margin: 10px auto;
+            max-width: 800px;
+            text-align: left;
+            font-size: 14px;
+            height: 120px;
+            overflow-y: auto;
+            color: #0f0;
+            border-radius: 5px;
+            white-space: pre-wrap;
+            clear: both;
+        }
+
+        /* Joystick zone */
+        #joystick-zone {
+            width: 200px;
+            height: 200px;
+            position: relative;
+            margin: 0 auto;
+        }
+
+        /* Buttons */
+        button {
+            width: 160px;
+            padding: 15px;
+            font-size: 20px;
+            background: #ff3333;
+            border: none;
+            color: white;
+            border-radius: 10px;
+            cursor: pointer;
+            margin: 5px;
+        }
+        button:active {
+            background: #cc0000;
+        }
+
+        /* Patrol controls */
+        .patrol-controls {
+            display: flex;
+            flex-direction: column;
+            gap: 10px;
+            align-items: center;
+            width: 100%;
+        }
+        input, textarea {
+            padding: 5px;
+            font-size: 16px;
+            background: #333;
+            color: white;
+            border: 1px solid #555;
+            border-radius: 4px;
+            width: 160px;
+        }
+
+        /* Responsive: stack vertically on narrow screens */
+        @media (max-width: 850px) {
+            .main-container {
+                flex-direction: column;
+                align-items: center;
+            }
+            .video-section {
+                max-width: 90vw;
+            }
+            .control-panel {
+                flex: 0 0 auto;
+                width: 90vw;
+                flex-direction: row;
+                flex-wrap: wrap;
+                justify-content: center;
+            }
+        }
+    </style>
+</head>
+<body>
+    <h2>SPY ROBOT LIVE</h2>
+
+    <div class="main-container">
+        <!-- Video on the left -->
+        <div class="video-section">
+            <video id="video" autoplay playsinline muted></video>
+        </div>
+
+        <!-- Controls on the right -->
+        <div class="control-panel">
+            <div id="joystick-zone"></div>
+            <button onclick="sendCommand('s')">STOP</button>
+
+            <div class="patrol-controls">
+                <input id="patrolTimes" placeholder="08:00,18:00" />
+                <button onclick="setSchedule()">Set Schedule</button>
+                <textarea id="waypoints" rows="3">[{"cmd":"f","duration":2,"speed":80}]</textarea>
+                <button onclick="loadWaypoints()">Load Waypoints</button>
+                <button onclick="startManualPatrol()">Start Patrol Now</button>
+            </div>
+        </div>
+    </div>
+
+    <!-- Status log (full width) -->
+    <div id="status">Initializing...</div>
+
+    <!-- External libraries -->
+    <script src="https://unpkg.com/mqtt/dist/mqtt.min.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/nipplejs/0.10.1/nipplejs.min.js"></script>
+
+    <script>
+        // ========== CONFIGURATION ==========
+        const broker = '5b5d1fc229d14745991d15a955fef7ca.s1.eu.hivemq.cloud';
+        const port = 8884;
+        const username = 'spyrobot';
+        const password = 'MySecurePass123';
+        const topicPrefix = 'spy_robot/robot1';
+        const controlTopic = topicPrefix + '/control';
+        const webrtcTopic = topicPrefix + '/webrtc';
+        const scheduleTopic = topicPrefix + '/patrol/schedule';
+        const pathTopic = topicPrefix + '/patrol/path';
+
+        // ========== STATUS LOGGING ==========
+        const statusDiv = document.getElementById('status');
+        function log(msg) {
+            console.log(msg);
+            statusDiv.textContent += msg + '\n';
+            statusDiv.scrollTop = statusDiv.scrollHeight;
+        }
+        window.onerror = function(msg, url, line, col, error) {
+            log('PAGE ERROR: ' + msg + ' at line ' + line);
+        };
+
+        // ========== MQTT ==========
+        log('Connecting to MQTT...');
+        const client = mqtt.connect(`wss://${broker}:${port}/mqtt`, { username, password });
+
+        client.on('connect', () => {
+            log('MQTT connected');
+            client.subscribe(webrtcTopic);
+        });
+
+        client.on('error', (err) => {
+            log('MQTT error: ' + err.message);
+        });
+
+        // ========== MOVEMENT ==========
+        function sendCommand(cmd) {
+            client.publish(controlTopic, cmd);
+        }
+
+        // ========== VIRTUAL JOYSTICK ==========
+        const joystick = nipplejs.create({
+            zone: document.getElementById('joystick-zone'),
+            mode: 'static',
+            position: { left:'50%', top:'50%' },
+            color: 'blue',
+            size: 180
+        });
+        joystick.on('move', (evt, data) => {
+            const dir = data.direction?.angle;
+            if (dir === 'up') sendCommand('f');
+            else if (dir === 'down') sendCommand('b');
+            else if (dir === 'left') sendCommand('l');
+            else if (dir === 'right') sendCommand('r');
+        });
+        joystick.on('end', () => sendCommand('s'));
+
+        // ========== PATROL ==========
+        function setSchedule() {
+            const times = document.getElementById('patrolTimes').value.split(',').map(t=>t.trim());
+            client.publish(scheduleTopic, JSON.stringify(times));
+            log('Schedule set');
+        }
+        function loadWaypoints() {
+            const wp = document.getElementById('waypoints').value;
+            client.publish(pathTopic, wp);
+            log('Waypoints loaded');
+        }
+        function startManualPatrol() {
+            loadWaypoints();
+            const now = new Date();
+            now.setMinutes(now.getMinutes() + 1);
+            const hh = String(now.getHours()).padStart(2,'0');
+            const mm = String(now.getMinutes()).padStart(2,'0');
+            client.publish(scheduleTopic, JSON.stringify([`${hh}:${mm}`]));
+            log('Patrol scheduled at ' + hh + ':' + mm);
+        }
+
+        // ========== WebRTC ==========
+        let pc = null;
+        const videoElem = document.getElementById('video');
+
+        async function createPeerConnection() {
+            pc = new RTCPeerConnection({
+                iceServers: [
+                    { urls: 'stun:stun.l.google.com:19302' },
+                    {
+                        urls: 'turn:openrelay.metered.ca:443',
+                        username: 'openrelayproject',
+                        credential: 'openrelayproject'
+                    }
+                ]
+            });
+            pc.ontrack = (event) => {
+                log('Remote track added: ' + event.track.kind);
+                videoElem.srcObject = event.streams[0];
+            };
+            pc.onicecandidate = (event) => {
+                if (event.candidate) {
+                    client.publish(webrtcTopic, JSON.stringify({
+                        candidate: event.candidate.candidate,
+                        sdpMid: event.candidate.sdpMid,
+                        sdpMLineIndex: event.candidate.sdpMLineIndex
+                    }));
+                }
+            };
+            log('RTCPeerConnection created');
+        }
+
+        client.on('message', (topic, message) => {
+            if (topic === webrtcTopic) {
+                try {
+                    const msg = JSON.parse(message.toString());
+                    handleSignal(msg);
+                } catch(e) {
+                    log('Signal parse error: ' + e.message);
+                }
+            }
+        });
+
+        async function handleSignal(msg) {
+            if (msg.sdp) {
+                log('Received SDP: ' + msg.type);
+                if (!pc) await createPeerConnection();
+                try {
+                    await pc.setRemoteDescription(new RTCSessionDescription(msg));
+                    if (msg.type === 'offer') {
+                        const answer = await pc.createAnswer();
+                        await pc.setLocalDescription(answer);
+                        client.publish(webrtcTopic, JSON.stringify({
+                            sdp: pc.localDescription.sdp,
+                            type: 'answer'
+                        }));
+                        log('Answer sent');
+                    }
+                } catch(e) {
+                    log('SDP error: ' + e.message);
+                }
+            } else if (msg.candidate) {
+                try {
+                    if (!pc) return;
+                    await pc.addIceCandidate(new RTCIceCandidate(msg));
+                } catch(e) {
+                    log('ICE error: ' + e.message);
+                }
+            }
+        }
+    </script>
+</body>
+</html>
