@@ -220,19 +220,24 @@
         // ========== WebRTC ==========
         let pc = null;
         let refreshTimeout = null;
-        let negotiating = false;          // prevent overlapping negotiations
+        let negotiating = false;           // prevents overlapping negotiations
         const videoElem = document.getElementById('video');
 
+        // Properly close peer connection and clear the video element
         function closePeerConnection() {
             if (pc) {
                 try { pc.close(); } catch(e) {}
                 pc = null;
-                log('Old peer connection closed');
+                // Clear the video element so it's ready for a new stream
+                videoElem.srcObject = null;
+                videoElem.load();          // force the element to reset
+                log('Old peer connection closed, video element cleared');
             }
         }
 
         async function createPeerConnection() {
-            closePeerConnection();
+            closePeerConnection();   // ensures clean state
+
             pc = new RTCPeerConnection({
                 iceServers: [
                     { urls: 'stun:stun.l.google.com:19302' },
@@ -248,8 +253,10 @@
                 log('Remote track added: ' + event.track.kind);
                 if (event.streams && event.streams[0]) {
                     videoElem.srcObject = event.streams[0];
-                    // Explicit play() helps some browsers
-                    videoElem.play().catch(e => log('Play error: ' + e.message));
+                    // Explicitly play the video (required after srcObject change)
+                    videoElem.play().then(() => {
+                        log('Video playing');
+                    }).catch(e => log('Play error: ' + e.message));
                 }
             };
 
@@ -268,23 +275,21 @@
         }
 
         async function handleSignal(msg) {
-            // Ignore messages while a negotiation is in progress (prevent race)
+            // Ignore SDP while already negotiating (prevents multiple concurrent offers)
             if (negotiating && msg.sdp) {
                 log('Busy – ignoring SDP');
                 return;
             }
-
+            // Only process offers; ignore answers
             if (msg.sdp) {
-                // Ignore answers – only process offers
                 if (msg.type !== 'offer') return;
 
                 log('Processing offer...');
                 negotiating = true;
-                clearTimeout(refreshTimeout);
+                clearTimeout(refreshTimeout);      // we got an offer, stop retry
 
                 try {
-                    // Always create a new connection for an incoming offer
-                    await createPeerConnection();
+                    await createPeerConnection();   // this clears old video too
                     await pc.setRemoteDescription(new RTCSessionDescription(msg));
                     const answer = await pc.createAnswer();
                     await pc.setLocalDescription(answer);
@@ -312,10 +317,11 @@
             client.publish(webrtcRefreshTopic, '1');
             log('Sent refresh request');
             clearTimeout(refreshTimeout);
+            // Give the robot enough time to restart the camera (~6 sec) before retrying
             refreshTimeout = setTimeout(() => {
                 log('No offer received yet, retrying refresh...');
                 requestRefresh();
-            }, 5000);
+            }, 10000);
         }
 
         client.on('message', (topic, message) => {
