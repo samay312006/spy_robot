@@ -538,11 +538,9 @@
         const distanceTopic = topicPrefix + '/distance';
         const scheduleTopic = topicPrefix + '/patrol/schedule';
         const pathTopic = topicPrefix + '/patrol/path';
-
-        // go2rtc
-        const GO2RTC_HOST = window.location.hostname || 'localhost';
-        const GO2RTC_PORT = 1984;
-        const GO2RTC_STREAM = 'picam';
+        const webrtcOfferTopic = topicPrefix + '/webrtc/offer';
+        const webrtcAnswerTopic = topicPrefix + '/webrtc/answer';
+        const clientId = Math.random().toString(36).substring(2, 10);
 
         // ========== UI ELEMENTS ==========
         const badgeMqtt   = document.getElementById('badge-mqtt');
@@ -580,6 +578,7 @@
             log('MQTT connected');
             setBadge(badgeMqtt, mqttLabel, 'connected', 'RPi Connected');
             client.subscribe(distanceTopic);
+            client.subscribe(webrtcAnswerTopic);
             startGo2rtcStream();
         });
 
@@ -592,10 +591,20 @@
             setBadge(badgeMqtt, mqttLabel, 'disconnected', 'RPi Disconnected');
         });
 
-        client.on('message', (topic, message) => {
+        client.on('message', async (topic, message) => {
             if (topic === distanceTopic) {
                 const val = message.toString();
                 distDisplay.textContent = val;
+            } else if (topic === webrtcAnswerTopic) {
+                try {
+                    const data = JSON.parse(message.toString());
+                    if (data.client_id === clientId && pc) {
+                        log('Received WebRTC answer via MQTT');
+                        await pc.setRemoteDescription(new RTCSessionDescription(data.answer));
+                    }
+                } catch (e) {
+                    log('WebRTC answer error: ' + e.message);
+                }
             }
         });
 
@@ -640,11 +649,11 @@
             log('Patrol scheduled at ' + hh + ':' + mm);
         }
 
-        // ========== go2rtc WebRTC ==========
+        // ========== go2rtc WebRTC via MQTT ==========
         let pc = null;
 
         async function startGo2rtcStream() {
-            log('Connecting to go2rtc...');
+            log('Starting WebRTC connection...');
             setBadge(badgeVideo, videoLabel, 'connecting', 'Video Connecting…');
 
             if (pc) {
@@ -699,28 +708,11 @@
                 setTimeout(resolve, 2000);
             });
 
-            try {
-                const apiUrl = `http://${GO2RTC_HOST}:${GO2RTC_PORT}/api/webrtc?src=${GO2RTC_STREAM}`;
-                log('POST → ' + apiUrl);
-
-                const response = await fetch(apiUrl, {
-                    method: 'POST',
-                    headers: { 'Content-Type': 'application/json' },
-                    body: JSON.stringify({ type: 'offer', sdp: pc.localDescription.sdp })
-                });
-
-                if (!response.ok) throw new Error(`HTTP ${response.status}`);
-
-                const answer = await response.json();
-                await pc.setRemoteDescription(new RTCSessionDescription(answer));
-                log('go2rtc stream negotiated');
-            } catch (e) {
-                log('go2rtc error: ' + e.message);
-                setBadge(badgeVideo, videoLabel, 'disconnected', 'Video Offline');
-                liveBadge.style.display = 'none';
-                log('Retrying in 5s...');
-                setTimeout(startGo2rtcStream, 5000);
-            }
+            log('Publishing WebRTC offer via MQTT...');
+            client.publish(webrtcOfferTopic, JSON.stringify({
+                client_id: clientId,
+                sdp: pc.localDescription.sdp
+            }));
         }
     </script>
 </body>

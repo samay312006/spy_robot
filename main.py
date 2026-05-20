@@ -1,13 +1,16 @@
 import time
+# pyrefly: ignore [missing-import]
 import paho.mqtt.client as mqtt
 import json
 import threading
 import subprocess
 import signal
 import os
+import urllib.request
 import config
 from motor import MotorController
 from lidar import TFLuna
+# pyrefly: ignore [missing-import]
 from patrol import Patrol
 import logging
 logging.basicConfig(level=logging.INFO)
@@ -90,6 +93,7 @@ class Robot:
             client.subscribe(config.CMD_TOPIC)
             client.subscribe(config.PATROL_SCHEDULE_TOPIC)
             client.subscribe(config.PATROL_PATH_TOPIC)
+            client.subscribe(config.WEBRTC_OFFER_TOPIC)
         else:
             print(f"Connection failed with code {rc}")
 
@@ -103,8 +107,41 @@ class Robot:
                 self.patrol.load_schedule(payload)
             elif topic == config.PATROL_PATH_TOPIC:
                 self.patrol.load_waypoints(payload)
+            elif topic == config.WEBRTC_OFFER_TOPIC:
+                self._handle_webrtc_offer(payload)
         except Exception as e:
             print("Error handling message:", e)
+
+    def _handle_webrtc_offer(self, payload):
+        def _process():
+            try:
+                data = json.loads(payload)
+                client_id = data.get('client_id')
+                offer_sdp = data.get('sdp')
+                
+                if not client_id or not offer_sdp:
+                    return
+
+                req_body = json.dumps({"type": "offer", "sdp": offer_sdp}).encode('utf-8')
+                req = urllib.request.Request(
+                    f"http://127.0.0.1:{config.GO2RTC_API_PORT}/api/webrtc?src=picam",
+                    data=req_body,
+                    headers={'Content-Type': 'application/json'}
+                )
+                
+                with urllib.request.urlopen(req, timeout=5) as response:
+                    res_body = response.read()
+                    answer_data = json.loads(res_body.decode('utf-8'))
+                    
+                    answer_payload = json.dumps({
+                        "client_id": client_id,
+                        "answer": answer_data
+                    })
+                    self.mqtt.publish(config.WEBRTC_ANSWER_TOPIC, answer_payload)
+            except Exception as e:
+                logger.error(f"WebRTC signaling error: {e}")
+                
+        threading.Thread(target=_process, daemon=True).start()
 
     def _handle_command(self, cmd):
         if cmd == 'f':

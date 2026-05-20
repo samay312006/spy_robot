@@ -9,6 +9,8 @@ STATUS_TOPIC = f"{TOPIC_PREFIX}/status"
 DISTANCE_TOPIC = f"{TOPIC_PREFIX}/distance"
 PATROL_SCHEDULE_TOPIC = f"{TOPIC_PREFIX}/patrol/schedule"
 PATROL_PATH_TOPIC = f"{TOPIC_PREFIX}/patrol/path"
+WEBRTC_OFFER_TOPIC = f"{TOPIC_PREFIX}/webrtc/offer"
+WEBRTC_ANSWER_TOPIC = f"{TOPIC_PREFIX}/webrtc/answer"
 # Motor pins (your existing pins)
 DIR_L = 19
 PWM_L = 26
