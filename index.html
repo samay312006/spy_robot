@@ -16,7 +16,6 @@
             margin: 10px 0;
         }
 
-        /* Main flex container: video + controls side by side */
         .main-container {
             display: flex;
             flex-wrap: wrap;
@@ -26,7 +25,6 @@
             padding: 10px;
         }
 
-        /* Video section */
         .video-section {
             flex: 1 1 auto;
             max-width: 640px;
@@ -40,7 +38,6 @@
             display: block;
         }
 
-        /* Control panel (joystick + buttons + patrol) */
         .control-panel {
             flex: 0 0 250px;
             display: flex;
@@ -49,7 +46,6 @@
             gap: 15px;
         }
 
-        /* Status log – full width below everything */
         #status {
             background: #222;
             padding: 10px;
@@ -65,7 +61,6 @@
             clear: both;
         }
 
-        /* Joystick zone */
         #joystick-zone {
             width: 200px;
             height: 200px;
@@ -73,7 +68,6 @@
             margin: 0 auto;
         }
 
-        /* Buttons */
         button {
             width: 160px;
             padding: 15px;
@@ -85,11 +79,8 @@
             cursor: pointer;
             margin: 5px;
         }
-        button:active {
-            background: #cc0000;
-        }
+        button:active { background: #cc0000; }
 
-        /* Patrol controls */
         .patrol-controls {
             display: flex;
             flex-direction: column;
@@ -107,15 +98,12 @@
             width: 160px;
         }
 
-        /* Responsive: stack vertically on narrow screens */
         @media (max-width: 850px) {
             .main-container {
                 flex-direction: column;
                 align-items: center;
             }
-            .video-section {
-                max-width: 90vw;
-            }
+            .video-section { max-width: 90vw; }
             .control-panel {
                 flex: 0 0 auto;
                 width: 90vw;
@@ -130,16 +118,13 @@
     <h2>SPY ROBOT LIVE</h2>
 
     <div class="main-container">
-        <!-- Video on the left -->
         <div class="video-section">
             <video id="video" autoplay playsinline muted></video>
         </div>
 
-        <!-- Controls on the right -->
         <div class="control-panel">
             <div id="joystick-zone"></div>
             <button onclick="sendCommand('s')">STOP</button>
-
             <div class="patrol-controls">
                 <input id="patrolTimes" placeholder="08:00,18:00" />
                 <button onclick="setSchedule()">Set Schedule</button>
@@ -150,10 +135,8 @@
         </div>
     </div>
 
-    <!-- Status log (full width) -->
     <div id="status">Initializing...</div>
 
-    <!-- External libraries -->
     <script src="https://unpkg.com/mqtt/dist/mqtt.min.js"></script>
     <script src="https://cdnjs.cloudflare.com/ajax/libs/nipplejs/0.10.1/nipplejs.min.js"></script>
 
@@ -188,18 +171,13 @@
         client.on('connect', () => {
             log('MQTT connected');
             client.subscribe(webrtcTopic);
-            // Request a fresh WebRTC offer now, with retry if needed
             requestRefresh();
         });
 
-        client.on('error', (err) => {
-            log('MQTT error: ' + err.message);
-        });
+        client.on('error', (err) => log('MQTT error: ' + err.message));
 
         // ========== MOVEMENT ==========
-        function sendCommand(cmd) {
-            client.publish(controlTopic, cmd);
-        }
+        function sendCommand(cmd) { client.publish(controlTopic, cmd); }
 
         // ========== VIRTUAL JOYSTICK ==========
         const joystick = nipplejs.create({
@@ -242,9 +220,9 @@
         // ========== WebRTC ==========
         let pc = null;
         let refreshTimeout = null;
+        let negotiating = false;          // prevent overlapping negotiations
         const videoElem = document.getElementById('video');
 
-        // Properly close any existing peer connection
         function closePeerConnection() {
             if (pc) {
                 try { pc.close(); } catch(e) {}
@@ -253,10 +231,8 @@
             }
         }
 
-        // Create a fresh RTCPeerConnection (always close previous one)
         async function createPeerConnection() {
-            closePeerConnection();  // ensure clean slate
-
+            closePeerConnection();
             pc = new RTCPeerConnection({
                 iceServers: [
                     { urls: 'stun:stun.l.google.com:19302' },
@@ -270,7 +246,11 @@
 
             pc.ontrack = (event) => {
                 log('Remote track added: ' + event.track.kind);
-                videoElem.srcObject = event.streams[0];
+                if (event.streams && event.streams[0]) {
+                    videoElem.srcObject = event.streams[0];
+                    // Explicit play() helps some browsers
+                    videoElem.play().catch(e => log('Play error: ' + e.message));
+                }
             };
 
             pc.onicecandidate = (event) => {
@@ -287,31 +267,37 @@
             return pc;
         }
 
-        // Handle incoming WebRTC signals
         async function handleSignal(msg) {
+            // Ignore messages while a negotiation is in progress (prevent race)
+            if (negotiating && msg.sdp) {
+                log('Busy – ignoring SDP');
+                return;
+            }
+
             if (msg.sdp) {
-                log('Received SDP: ' + msg.type);
-                // Stop retry timer – we got an offer/answer
+                // Ignore answers – only process offers
+                if (msg.type !== 'offer') return;
+
+                log('Processing offer...');
+                negotiating = true;
                 clearTimeout(refreshTimeout);
 
-                // Only act on offers (browser creates answer)
-                if (msg.type === 'offer') {
-                    // Always create a new connection for a fresh offer
+                try {
+                    // Always create a new connection for an incoming offer
                     await createPeerConnection();
-                    try {
-                        await pc.setRemoteDescription(new RTCSessionDescription(msg));
-                        const answer = await pc.createAnswer();
-                        await pc.setLocalDescription(answer);
-                        client.publish(webrtcTopic, JSON.stringify({
-                            sdp: pc.localDescription.sdp,
-                            type: 'answer'
-                        }));
-                        log('Answer sent');
-                    } catch(e) {
-                        log('SDP error: ' + e.message);
-                    }
+                    await pc.setRemoteDescription(new RTCSessionDescription(msg));
+                    const answer = await pc.createAnswer();
+                    await pc.setLocalDescription(answer);
+                    client.publish(webrtcTopic, JSON.stringify({
+                        sdp: pc.localDescription.sdp,
+                        type: 'answer'
+                    }));
+                    log('Answer sent');
+                } catch(e) {
+                    log('SDP error: ' + e.message);
+                } finally {
+                    negotiating = false;
                 }
-                // Ignore answers – robot handles them
             } else if (msg.candidate) {
                 try {
                     if (!pc) return;
@@ -322,7 +308,6 @@
             }
         }
 
-        // Send refresh request to robot, with retry if no offer received
         function requestRefresh() {
             client.publish(webrtcRefreshTopic, '1');
             log('Sent refresh request');
