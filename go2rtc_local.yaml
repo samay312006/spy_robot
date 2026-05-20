@@ -1,0 +1,5 @@
+streams:
+  picam:
+    - "exec:echo fake stream"
+api:
+  listen: ":1984"

@@ -1,0 +1,10 @@
+15:00:49.807 INF go2rtc platform=linux/amd64 revision=b5948cf version=1.9.14
+15:00:49.807 INF config path=/home/samay/spybot/go2rtc_local.yaml
+15:00:49.807 INF [rtsp] listen addr=:8554
+15:00:49.807 INF [api] listen addr=:1984
+15:00:49.807 INF [webrtc] listen tcp addr=[::]:8555
+15:00:49.808 INF [webrtc] listen udp addr=172.17.0.1:8555
+15:00:49.808 INF [webrtc] listen udp addr=192.168.1.76:8555
+15:00:51.620 ERR github.com/AlexxIT/go2rtc/internal/webrtc/webrtc.go:295 > error="SetRemoteDescription called with no ice-ufrag"
+15:00:51.620 ERR github.com/AlexxIT/go2rtc/internal/webrtc/server.go:129 > error="SetRemoteDescription called with no ice-ufrag"
+exit with signal: terminated

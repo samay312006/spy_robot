@@ -540,6 +540,7 @@
         const pathTopic = topicPrefix + '/patrol/path';
         const webrtcOfferTopic = topicPrefix + '/webrtc/offer';
         const webrtcAnswerTopic = topicPrefix + '/webrtc/answer';
+        const statusTopic = topicPrefix + '/status';
         const clientId = Math.random().toString(36).substring(2, 10);
 
         // ========== UI ELEMENTS ==========
@@ -579,6 +580,7 @@
             setBadge(badgeMqtt, mqttLabel, 'connected', 'RPi Connected');
             client.subscribe(distanceTopic);
             client.subscribe(webrtcAnswerTopic);
+            client.subscribe(statusTopic);
             startGo2rtcStream();
         });
 
@@ -605,6 +607,8 @@
                 } catch (e) {
                     log('WebRTC answer error: ' + e.message);
                 }
+            } else if (topic === statusTopic) {
+                log('Robot: ' + message.toString());
             }
         });
 

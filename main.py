@@ -1,5 +1,4 @@
 import time
-# pyrefly: ignore [missing-import]
 import paho.mqtt.client as mqtt
 import json
 import threading
@@ -10,7 +9,6 @@ import urllib.request
 import config
 from motor import MotorController
 from lidar import TFLuna
-# pyrefly: ignore [missing-import]
 from patrol import Patrol
 import logging
 logging.basicConfig(level=logging.INFO)
@@ -120,7 +118,10 @@ class Robot:
                 offer_sdp = data.get('sdp')
                 
                 if not client_id or not offer_sdp:
+                    self.mqtt.publish("spy_robot/robot1/status", "Invalid offer received")
                     return
+                
+                self.mqtt.publish("spy_robot/robot1/status", "Processing WebRTC offer on Robot...")
 
                 req_body = json.dumps({"type": "offer", "sdp": offer_sdp}).encode('utf-8')
                 req = urllib.request.Request(
@@ -138,8 +139,14 @@ class Robot:
                         "answer": answer_data
                     })
                     self.mqtt.publish(config.WEBRTC_ANSWER_TOPIC, answer_payload)
+                    logger.info("Successfully published WebRTC answer")
+            except urllib.error.HTTPError as e:
+                err_msg = f"WebRTC HTTP Error: {e.code} - {e.read().decode('utf-8')}"
+                logger.error(err_msg)
+                self.mqtt.publish("spy_robot/robot1/status", err_msg)
             except Exception as e:
                 logger.error(f"WebRTC signaling error: {e}")
+                self.mqtt.publish("spy_robot/robot1/status", f"WebRTC Error: {str(e)}")
                 
         threading.Thread(target=_process, daemon=True).start()
 
