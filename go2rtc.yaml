@@ -1,6 +1,6 @@
 streams:
   picam:
-    - "exec:rpicam-vid -t 0 --inline -o - --width 640 --height 480 --framerate 15 --codec h264"
+    - "exec:ffmpeg -f v4l2 -input_format mjpeg -i /dev/video0 -c:v libx264 -preset ultrafast -b:v 1000k -f h264 -"
 
 webrtc:
   candidates:

@@ -29,8 +29,7 @@ class Robot:
         self.mqtt.username_pw_set(config.MQTT_USER, config.MQTT_PASS)
         # NO tls_set() needed – WSS handles encryption automatically
 
-        self.patrol = Patrol(self.motor, self.lidar, self._publish_status)
-        self.mqtt.tls_set() 
+        self.patrol = Patrol(self.motor, self.lidar, self._publish_status) 
 
         self._publish_distance = True
         threading.Thread(target=self._distance_publisher, daemon=True).start()
@@ -48,6 +47,10 @@ class Robot:
             logger.error("Download from: https://github.com/AlexxIT/go2rtc/releases")
             return
 
+        if not os.path.isfile(go2rtc_cfg):
+            logger.error(f"go2rtc config not found at {go2rtc_cfg}")
+            return
+
         logger.info(f"Starting go2rtc: {go2rtc_bin} -config {go2rtc_cfg}")
         self._go2rtc_proc = subprocess.Popen(
             [go2rtc_bin, "-config", go2rtc_cfg],
@@ -63,6 +66,22 @@ class Robot:
 
         logger.info(f"go2rtc started (PID {self._go2rtc_proc.pid}), "
                      f"API on port {config.GO2RTC_API_PORT}")
+
+        # Wait for go2rtc to be ready
+        logger.info("Waiting for go2rtc API to be ready...")
+        for attempt in range(10):  # Try for up to 5 seconds
+            time.sleep(0.5)
+            if self._go2rtc_proc.poll() is not None:
+                logger.error("go2rtc process exited unexpectedly")
+                return
+            try:
+                response = urllib.request.urlopen(f"http://127.0.0.1:{config.GO2RTC_API_PORT}/api/version", timeout=1)
+                logger.info("✓ go2rtc API is ready")
+                return
+            except:
+                if attempt == 9:
+                    logger.error("go2rtc API failed to respond after 5 seconds")
+                    pass
 
     def _stop_go2rtc(self):
         """Stop the go2rtc subprocess."""
@@ -113,6 +132,13 @@ class Robot:
     def _handle_webrtc_offer(self, payload):
         def _process():
             try:
+                # Check if go2rtc process is still alive
+                if not self._go2rtc_proc or self._go2rtc_proc.poll() is not None:
+                    msg = "go2rtc process not running"
+                    logger.error(msg)
+                    self.mqtt.publish("spy_robot/robot1/status", msg)
+                    return
+
                 data = json.loads(payload)
                 client_id = data.get('client_id')
                 offer_sdp = data.get('sdp')
@@ -141,7 +167,16 @@ class Robot:
                     self.mqtt.publish(config.WEBRTC_ANSWER_TOPIC, answer_payload)
                     logger.info("Successfully published WebRTC answer")
             except urllib.error.HTTPError as e:
-                err_msg = f"WebRTC HTTP Error: {e.code} - {e.read().decode('utf-8')}"
+                err_body = ""
+                try:
+                    err_body = f" - {e.read().decode('utf-8')}"
+                except:
+                    pass
+                err_msg = f"WebRTC HTTP Error: {e.code}{err_body}"
+                logger.error(err_msg)
+                self.mqtt.publish("spy_robot/robot1/status", err_msg)
+            except urllib.error.URLError as e:
+                err_msg = f"WebRTC Connection Error: {str(e)} - go2rtc API not responding"
                 logger.error(err_msg)
                 self.mqtt.publish("spy_robot/robot1/status", err_msg)
             except Exception as e:
@@ -185,10 +220,19 @@ class Robot:
     def start(self):
         # Start go2rtc for camera streaming
         self._start_go2rtc()
+        time.sleep(1)  # Brief delay to ensure go2rtc thread info is logged
 
         # Connect to MQTT broker on port 8884 (WebSocket)
+        logger.info("Connecting to MQTT broker...")
         self.mqtt.connect(config.MQTT_BROKER, 8884, 60)
         self.mqtt.loop_start()
+
+        # Publish startup status
+        time.sleep(1)
+        if self._go2rtc_proc and self._go2rtc_proc.poll() is None:
+            self.mqtt.publish("spy_robot/robot1/status", "✓ Robot online - go2rtc streaming ready")
+        else:
+            self.mqtt.publish("spy_robot/robot1/status", "✗ WARNING: go2rtc not running")
 
         threading.Thread(target=self.patrol.run_scheduler_loop, daemon=True).start()
 
