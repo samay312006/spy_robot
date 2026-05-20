@@ -188,8 +188,8 @@
         client.on('connect', () => {
             log('MQTT connected');
             client.subscribe(webrtcTopic);
-                // Request a fresh WebRTC offer (robot will restart its peer connection)
-            client.publish(topicPrefix + '/webrtc_refresh', '1');
+            // Request a fresh WebRTC offer now, with retry if needed
+            requestRefresh();
         });
 
         client.on('error', (err) => {
@@ -241,9 +241,22 @@
 
         // ========== WebRTC ==========
         let pc = null;
+        let refreshTimeout = null;
         const videoElem = document.getElementById('video');
 
+        // Properly close any existing peer connection
+        function closePeerConnection() {
+            if (pc) {
+                try { pc.close(); } catch(e) {}
+                pc = null;
+                log('Old peer connection closed');
+            }
+        }
+
+        // Create a fresh RTCPeerConnection (always close previous one)
         async function createPeerConnection() {
+            closePeerConnection();  // ensure clean slate
+
             pc = new RTCPeerConnection({
                 iceServers: [
                     { urls: 'stun:stun.l.google.com:19302' },
@@ -254,10 +267,12 @@
                     }
                 ]
             });
+
             pc.ontrack = (event) => {
                 log('Remote track added: ' + event.track.kind);
                 videoElem.srcObject = event.streams[0];
             };
+
             pc.onicecandidate = (event) => {
                 if (event.candidate) {
                     client.publish(webrtcTopic, JSON.stringify({
@@ -267,7 +282,55 @@
                     }));
                 }
             };
+
             log('RTCPeerConnection created');
+            return pc;
+        }
+
+        // Handle incoming WebRTC signals
+        async function handleSignal(msg) {
+            if (msg.sdp) {
+                log('Received SDP: ' + msg.type);
+                // Stop retry timer – we got an offer/answer
+                clearTimeout(refreshTimeout);
+
+                // Only act on offers (browser creates answer)
+                if (msg.type === 'offer') {
+                    // Always create a new connection for a fresh offer
+                    await createPeerConnection();
+                    try {
+                        await pc.setRemoteDescription(new RTCSessionDescription(msg));
+                        const answer = await pc.createAnswer();
+                        await pc.setLocalDescription(answer);
+                        client.publish(webrtcTopic, JSON.stringify({
+                            sdp: pc.localDescription.sdp,
+                            type: 'answer'
+                        }));
+                        log('Answer sent');
+                    } catch(e) {
+                        log('SDP error: ' + e.message);
+                    }
+                }
+                // Ignore answers – robot handles them
+            } else if (msg.candidate) {
+                try {
+                    if (!pc) return;
+                    await pc.addIceCandidate(new RTCIceCandidate(msg));
+                } catch(e) {
+                    log('ICE error: ' + e.message);
+                }
+            }
+        }
+
+        // Send refresh request to robot, with retry if no offer received
+        function requestRefresh() {
+            client.publish(webrtcRefreshTopic, '1');
+            log('Sent refresh request');
+            clearTimeout(refreshTimeout);
+            refreshTimeout = setTimeout(() => {
+                log('No offer received yet, retrying refresh...');
+                requestRefresh();
+            }, 5000);
         }
 
         client.on('message', (topic, message) => {
@@ -280,34 +343,6 @@
                 }
             }
         });
-
-        async function handleSignal(msg) {
-            if (msg.sdp) {
-                log('Received SDP: ' + msg.type);
-                if (!pc) await createPeerConnection();
-                try {
-                    await pc.setRemoteDescription(new RTCSessionDescription(msg));
-                    if (msg.type === 'offer') {
-                        const answer = await pc.createAnswer();
-                        await pc.setLocalDescription(answer);
-                        client.publish(webrtcTopic, JSON.stringify({
-                            sdp: pc.localDescription.sdp,
-                            type: 'answer'
-                        }));
-                        log('Answer sent');
-                    }
-                } catch(e) {
-                    log('SDP error: ' + e.message);
-                }
-            } else if (msg.candidate) {
-                try {
-                    if (!pc) return;
-                    await pc.addIceCandidate(new RTCIceCandidate(msg));
-                } catch(e) {
-                    log('ICE error: ' + e.message);
-                }
-            }
-        }
     </script>
 </body>
 </html>
